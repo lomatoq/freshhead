@@ -100,6 +100,7 @@ class Ranker:
         self.vectors = {p.id: features(p) for p in products}
         self.embeddings = embeddings or {}
         self.by_category = {}
+        self._taste_cache = {}
         for p in products:
             self.by_category.setdefault((p.category, p.demo), []).append(p)
 
@@ -110,6 +111,8 @@ class Ranker:
         return .7 * max(0, cosine(av, bv)) + .3 * text if av is not None and bv is not None else text
 
     def taste(self, p):
+        if p.id in self._taste_cache:
+            return self._taste_cache[p.id]
         same = self.by_category.get((p.category, p.demo), [])
         positives = [(self.similarity(p, q), q) for q in same if self.ratings.get(q.id) == 1 and q.id != p.id]
         negatives = [self.similarity(p, q) for q in same if self.ratings.get(q.id) == -1 and q.id != p.id]
@@ -122,7 +125,8 @@ class Ranker:
         reason = f'Близко к «{nearest[0][1].title[:65]}»' if nearest and nearest[0][0] > .12 else 'Ещё изучаю твой вкус в этой категории'
         if p.id in self.embeddings and nearest and nearest[0][1].id in self.embeddings:
             reason += ' · фото + признаки'
-        return round(score), reason
+        self._taste_cache[p.id] = (round(score), reason)
+        return self._taste_cache[p.id]
 
     def feed(self, settings, category='', saved=False, training=False):
         items = []
@@ -228,7 +232,13 @@ def build_outfits(products, ratings, settings, anchor_id='', mode='', embeddings
     buckets = {}
     for category in ('top', 'bottom', 'footwear'):
         candidates = sorted([p for p in pool if p.category == category], key=lambda p: ranker.taste(p)[0], reverse=True)
-        buckets[category] = [anchor] if anchor and anchor.category == category else candidates[:18]
+        diverse, per_store = [], Counter()
+        for p in candidates:
+            if per_store[p.store] < 3:
+                diverse.append(p)
+                per_store[p.store] += 1
+        chosen = (diverse + [p for p in candidates if p not in diverse])[:18]
+        buckets[category] = [anchor] if anchor and anchor.category == category else chosen
     if not all(buckets.values()):
         missing = [k for k, v in buckets.items() if not v]
         return {'outfits': [], 'missing': missing, 'message': 'Нужны доступные вещи во всех трёх категориях'}
@@ -245,7 +255,7 @@ def build_outfits(products, ratings, settings, anchor_id='', mode='', embeddings
             'items': [p.model_dump() for p in items], 'score': round(.7*match + .3*taste),
             'compatibility': match, 'taste': round(taste), 'reasons': reasons,
             'source_ids': refs, 'confidence': confidence, 'mode': mode, 'totals': totals,
-            'note': 'Признаки выведены из описаний. Длина, посадка на тебе, доставка и окончательное наличие требуют проверки.'})
+            'note': ('Фото + описания; AI-признаки могут ошибаться. Сочетание оценивают правила, не обученная на образах модель. ' if any(p.visual_attributes for p in items) else 'Признаки из описаний. ') + 'Посадку, длину, доставку и наличие проверь отдельно.'})
     combos.sort(key=lambda o: -o['score'])
     selected = []
     for outfit in combos:

@@ -15,7 +15,7 @@ def main():
     parser.add_argument('--port', type=int, default=8766)
     parser.add_argument('--store', default='')
     parser.add_argument('--send', action='store_true')
-    parser.add_argument('--limit', type=int, default=200)
+    parser.add_argument('--limit', type=int, default=192)
     args = parser.parse_args()
     from .db import DB
     db = DB()
@@ -24,6 +24,8 @@ def main():
         from .app import create_app
         uvicorn.run(create_app(db), host='127.0.0.1', port=args.port, log_level='warning')
     elif args.command == 'index-images':
+        os.environ.setdefault('HF_HUB_DISABLE_TELEMETRY', '1')
+        os.environ.setdefault('HF_HUB_DISABLE_IMPLICIT_TOKEN', '1')
         from .vision import index_images
         index_images(db, args.limit)
     elif args.command == 'demo':

@@ -20,7 +20,7 @@ from .db import DB
 from .models import Settings
 from .service import Service
 from .style import SOURCES, build_outfits
-from .vision import load_index
+from .vision import load_index, vision_products, load_records
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -60,8 +60,11 @@ def create_app(db: DB | None = None):
         for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if service.ai.process is not None and service.ai.process.poll() is None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(service.ai.stop)
 
-    app = FastAPI(title='Freshhead', version='0.1.0', lifespan=lifespan)
+    app = FastAPI(title='Freshhead', version='0.2.0', lifespan=lifespan)
     app.state.db = db
     app.state.service = service
     # Loopback only by default. See README before deliberately publishing this single-user app.
@@ -93,12 +96,14 @@ def create_app(db: DB | None = None):
         products = db.products()
         ratings = db.ratings()
         index = load_index(db)
-        return {'version': '0.1.0', 'settings': db.settings().model_dump(),
+        from collections import Counter
+        counts = Counter(p.store for p in products if not p.demo)
+        return {'version': '0.2.0', 'settings': db.settings().model_dump(),
                 'counts': {'products': sum(not p.demo for p in products), 'demo': sum(p.demo for p in products),
                            'liked': sum(v == 1 for v in ratings.values()), 'rated': len(ratings),
                            'images_indexed': len(index)},
-                'stores': [s.public() for s in STORES.values()], 'runs': db.runs(),
-                'progress': service.progress, 'sources': SOURCES,
+                'stores': [dict(s.public(), products=counts[s.id]) for s in STORES.values()], 'runs': db.runs(),
+                'progress': service.progress, 'sources': SOURCES, 'ai': service.ai.status(),
                 'vision': 'FashionCLIP + metadata' if index else 'Признаки из описаний (без анализа фото)',
                 'telegram_ready': bool(os.getenv('TELEGRAM_BOT_TOKEN') and os.getenv('TELEGRAM_CHAT_ID')),
                 'digest': db.digest(), 'saved_outfits': db.outfits()}
@@ -111,6 +116,52 @@ def create_app(db: DB | None = None):
         if store:
             rows = [p for p in rows if p['store'] == store]
         return {'items': rows[:1200], 'total': len(rows)}
+
+    @app.get('/api/ai/status')
+    def ai_status():
+        return service.ai.status()
+
+    @app.post('/api/ai/index')
+    def ai_index():
+        try:
+            return service.ai.start()
+        except RuntimeError as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    @app.post('/api/ai/stop')
+    def ai_stop():
+        try:
+            return service.ai.stop()
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+
+    @app.get('/api/products/{pid}/similar')
+    def similar(pid: str):
+        from .style import allowed, cosine
+        index = load_index(db)
+        if pid not in index:
+            raise HTTPException(422, 'Сначала включи AI и проанализируй фото этой вещи')
+        ranker = service.ranker()
+        anchor = next((p for p in ranker.products if p.id == pid), None)
+        if not anchor:
+            raise HTTPException(404, 'Вещь не найдена')
+        rows = []
+        filters = db.settings()
+        for p in ranker.products:
+            if (p.id == pid or p.id not in index or p.category != anchor.category
+                    or not allowed(p, filters) or ranker.ratings.get(p.id) == -1):
+                continue
+            similarity = cosine(index[pid], index[p.id])
+            score, reason = ranker.taste(p)
+            row = p.model_dump()
+            row.update(similarity=round(similarity, 4), score=score,
+                       reason='Визуальное сходство с выбранной вещью · не оценка сочетаемости',
+                       rating=ranker.ratings.get(p.id), vision=True)
+            rows.append(row)
+        rows.sort(key=lambda p: -p['similarity'])
+        return {'anchor': anchor.model_dump(), 'items': rows[:24], 'method': 'FashionCLIP cosine, same category'}
 
     @app.post('/api/products/{pid}/rating')
     def rate(pid: str, body: Rating):
@@ -149,7 +200,7 @@ def create_app(db: DB | None = None):
     @app.post('/api/outfits')
     def outfits(body: OutfitBody):
         try:
-            return build_outfits(db.products(), db.ratings(), db.settings(), body.anchor_id, body.mode, load_index(db))
+            return build_outfits(vision_products(db), db.ratings(), db.settings(), body.anchor_id, body.mode, load_index(db))
         except ValueError as e:
             raise HTTPException(422, str(e))
 

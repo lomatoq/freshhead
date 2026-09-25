@@ -13,7 +13,8 @@ import httpx
 from .catalog import CrawlError, PublicClient, STORES, extract, store_for
 from .models import Product, canonical, now
 from .style import Ranker, build_outfits
-from .vision import load_index
+from .vision import load_index, vision_products
+from .ai import AIJobs
 
 log = logging.getLogger('freshhead')
 
@@ -23,10 +24,11 @@ class Service:
         self.db = db
         self.lock = asyncio.Lock()
         self.task = None
+        self.ai = AIJobs(db)
         self.progress = {'running': False, 'store': '', 'message': ''}
 
     def ranker(self):
-        return Ranker(self.db.products(), self.db.ratings(), load_index(self.db))
+        return Ranker(vision_products(self.db), self.db.ratings(), load_index(self.db))
 
     def merge(self, p):
         old = self.db.product(p.id)
@@ -109,6 +111,11 @@ class Service:
                         await self.scan_store(source)
             finally:
                 self.progress = {'running': False, 'store': '', 'message': 'Проверка завершена'}
+            if self.db.settings().ai_enabled and self.db.settings().ai_auto_index:
+                try:
+                    self.ai.start()
+                except (RuntimeError, ValueError) as e:
+                    log.info('AI auto-index: %s', str(e))
 
     def start_refresh(self, sid=None):
         if self.task and not self.task.done() or self.lock.locked():
@@ -157,7 +164,7 @@ class Service:
                 if len(checked) >= s.digest_count:
                     break
             # Demo records are never used in a real daily digest or delivery.
-            real = [p for p in self.db.products() if not p.demo]
+            real = [p for p in vision_products(self.db) if not p.demo]
             looks = build_outfits(real, self.db.ratings(), s, embeddings=load_index(self.db), limit=2)['outfits']
             body = {'day': day, 'created': now(), 'items': checked, 'outfits': looks,
                     'status': 'ready' if checked else 'empty', 'sent': False,

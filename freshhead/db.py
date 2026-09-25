@@ -29,10 +29,23 @@ class DB:
                 CREATE TABLE IF NOT EXISTS outfits(id TEXT PRIMARY KEY, body TEXT NOT NULL, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS digests(day TEXT PRIMARY KEY, body TEXT NOT NULL, created TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS delivered(id TEXT PRIMARY KEY, sent TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS image_features(id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+                    image TEXT NOT NULL, model TEXT NOT NULL, revision TEXT NOT NULL,
+                    prompt_version INTEGER NOT NULL, vector TEXT NOT NULL, attributes TEXT NOT NULL, updated TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS product_store ON products(store);
             ''')
+            from .stores_extra import NEW_IDS
+            migrated = c.execute("SELECT value FROM kv WHERE key='catalog_migration_v2'").fetchone()
+            if not migrated:
+                row = c.execute("SELECT value FROM kv WHERE key='settings'").fetchone()
+                if row:
+                    settings = json.loads(row[0])
+                    ids = settings.get('enabled_stores', ['eme', 'supersklep', 'jaded', 'walk'])
+                    settings['enabled_stores'] = list(dict.fromkeys(ids + NEW_IDS))
+                    c.execute("UPDATE kv SET value=? WHERE key='settings'", (json.dumps(settings),))
+                c.execute("INSERT INTO kv VALUES('catalog_migration_v2','true')")
             # A process may have exited in the middle of a scan; never display it as still running.
-            c.execute("UPDATE runs SET status='interrupted',message='Предыдущий запуск прерван',ended=? WHERE status='running'", (now(),))
+            c.execute("UPDATE runs SET status='interrupted',message='Старый запуск прерван',ended=? WHERE status='running' AND julianday(started) < julianday('now','-2 hours')", (now(),))
 
     @contextmanager
     def connect(self):

@@ -28,7 +28,7 @@ class Store:
 
     def public(self):
         d = asdict(self)
-        d['url'] = 'https://' + self.domain
+        d['url'] = self.seeds[0]
         return d
 
 
@@ -47,6 +47,10 @@ STORES = {
         ('https://walkinparis.com/en/collections/all',), r'/products/[^/?]+',
         'Более спокойный городской гардероб: рубашки, брюки, трикотаж.', 'Walk in Paris'),
 }
+
+
+from .stores_extra import extra_stores
+STORES.update(extra_stores(Store))
 
 
 class CrawlError(RuntimeError):
@@ -174,11 +178,11 @@ def enrich(p: Product) -> Product:
     t = title + ' ' + textnorm(p.description[:3000])
     if words(title, r'snowboard|goggle|deck|deskorolk|bindings|skarpety|socks|belt|pasek|cap|czapka|bag|torba|hat|scarf|szalik|sunglasses'):
         p.category = 'accessory'
-    elif words(title, r'buty|sneakers?|shoes?|boots?|loafers?|derby|clogs?|sandals?|trampki|chaussures|mocassins'):
+    elif words(title, r'buty|sneakers?|shoes?|trainers?|boots?|loafers?|derby|clogs?|sandals?|trampki|chaussures|mocassins'):
         p.category = 'footwear'
     elif words(title, r'jacket|coat|kurtka|kurtki|plaszcz|bomber|parka|veste|blouson|overshirt'):
         p.category = 'outerwear'
-    elif words(title, r'tee|shirt|t-shirt|tshirt|koszulka|koszulki|bluza|hoodie|sweatshirt|knit|sweater|cardigan|polo|longsleeve|pullover|sweter|chemise|pull|tricot'):
+    elif words(title, r'tee|tees|shirt|t-shirt|tshirt|koszulka|koszulki|bluza|hoodie|hoodies|sweatshirt|crewneck|long.sleeve|knit|sweater|cardigan|polo|longsleeve|pullover|sweter|chemise|pull|tricot'):
         p.category = 'top'
     elif words(title, r'jeans?|denim|trousers?|pants?|spodnie|joggers?|shorts?|szorty|pantalon|bermuda'):
         p.category = 'bottom'
@@ -276,7 +280,10 @@ def ld_product(data, store: Store, page_url: str) -> Product | None:
         material=string_value(data.get('material')), extraction='json-ld')
     if prices:
         p.price = min(prices)
-    return enrich(p)
+    p = enrich(p)
+    if p.category == 'unknown' and ('/shoes/' in urlsplit(p.url).path or '/footwear/' in urlsplit(p.url).path):
+        p.category = 'footwear'
+    return p
 
 
 def extract(html: str, url: str, store: Store, detail: bool = False) -> tuple[list[Product], list[str]]:
@@ -300,6 +307,12 @@ def extract(html: str, url: str, store: Store, detail: bool = False) -> tuple[li
                 target = obj.get('url') or (obj.get('item', {}).get('url') if isinstance(obj.get('item'), dict) else obj.get('item'))
                 if isinstance(target, str) and valid_store_url(urljoin(url, target), store):
                     links.append(canonical(urljoin(url, target)))
+    from .stores_extra import NEW_IDS
+    if store.id in NEW_IDS:
+        from .cards import extract_cards
+        for p in extract_cards(soup, url, store):
+            products.setdefault(p.id, p)
+
     # Supersklep publishes exact main-card attributes. Color swatches are only
     # discovery links: their parent's price belongs to a different colorway.
     if store.id == 'supersklep':
@@ -327,6 +340,8 @@ def extract(html: str, url: str, store: Store, detail: bool = False) -> tuple[li
             continue
         href = canonical(href)
         links.append(href)
+        if store.id in NEW_IDS:
+            continue  # New sources use the bounded adapter, not the legacy fallback.
         if store.id == 'supersklep' and a.find_parent(class_='colors'):
             continue
         if product_id(store.id, href) in products:
@@ -381,7 +396,7 @@ class PublicClient:
     def __init__(self, store: Store):
         self.store = store
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(25), follow_redirects=False,
-            headers={'User-Agent': 'Freshhead/0.1 (+https://github.com/lomatoq/freshhead; personal catalog)',
+            headers={'User-Agent': 'Freshhead/0.2 (+https://github.com/lomatoq/freshhead; personal catalog)',
                      'Accept-Language': 'en,pl;q=0.9', 'Accept': 'text/html,application/json;q=0.9,*/*;q=0.5'})
         self.robots: Robots | None = None
         self.last_request = 0.0
@@ -389,7 +404,7 @@ class PublicClient:
 
     async def __aenter__(self):
         try:
-            response = await self._request('https://' + self.store.domain + '/robots.txt', robots=True)
+            response = await self._request('https://' + urlsplit(self.store.seeds[0]).netloc + '/robots.txt', robots=True)
             if response.status_code == 404:
                 self.robots = Robots('User-agent: *\nAllow: /')
             elif response.is_success and not response.text.lstrip().startswith('<'):
@@ -457,7 +472,7 @@ class PublicClient:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             try:
-                page = await browser.new_page(locale='en-GB', user_agent='Freshhead/0.1 (Playwright; personal catalog)')
+                page = await browser.new_page(locale='en-GB', user_agent='Freshhead/0.2 (Playwright; personal catalog)')
                 async def gate(route):
                     target = route.request.url
                     if valid_store_url(target, self.store) and self.robots.allowed(target) and route.request.method == 'GET':

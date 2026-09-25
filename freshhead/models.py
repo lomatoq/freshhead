@@ -8,6 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
+from .stores_extra import NEW_IDS
 
 
 def now() -> str:
@@ -68,6 +69,7 @@ class Product(BaseModel):
     demo: bool = False
     fetched_at: str = Field(default_factory=now)
     first_seen: str = Field(default_factory=now)
+    visual_attributes: dict = Field(default_factory=dict)
     attributes_source: str = 'text heuristics; not visually verified'
 
     @field_validator('url')
@@ -86,13 +88,16 @@ class Product(BaseModel):
 
 
 class Settings(BaseModel):
-    enabled_stores: list[str] = Field(default_factory=lambda: ['eme', 'supersklep', 'jaded', 'walk'])
+    enabled_stores: list[str] = Field(default_factory=lambda: ['eme', 'supersklep', 'jaded', 'walk'] + NEW_IDS)
     budgets: dict[str, float] = Field(default_factory=lambda: {'PLN': 1200, 'EUR': 280, 'GBP': 240, 'USD': 300})
     sizes: dict[str, list[str]] = Field(default_factory=dict)
     strict_sizes: bool = False
     hide_unknown_prices: bool = False
     gender: Literal['all', 'men', 'women'] = 'men'
     outfit_mode: Literal['balanced', 'contrast', 'relaxed'] = 'balanced'
+    ai_enabled: bool = True
+    ai_auto_index: bool = False
+    ai_batch_limit: int = Field(default=192, ge=1, le=1000)
     daily_enabled: bool = False
     daily_time: str = '09:00'
     timezone: str = 'Europe/Warsaw'
