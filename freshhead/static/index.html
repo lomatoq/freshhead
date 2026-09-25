@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#171a16"><meta name="description" content="Твой вкус. Новые вещи. Цельные образы. Личный локальный гардероб Freshhead.">
+  <title>Freshhead — wardrobe radar</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="wordmark" href="#feed" aria-label="Freshhead — главная">freshhead<span>↗</span></a>
+    <div class="edition">PERSONAL WARDROBE RADAR<br><span>LOCAL FIRST · EDITION 001</span></div>
+    <nav aria-label="Главная навигация">
+      <button data-page="feed" class="nav-item active"><span class="nav-icon">◫</span>Находки<span class="nav-num" id="navCount">00</span></button>
+      <button data-page="train" class="nav-item"><span class="nav-icon">✳</span>Твой вкус<span class="mini-dot"></span></button>
+      <button data-page="outfits" class="nav-item"><span class="nav-icon">⌘</span>Образы</button>
+      <button data-page="saved" class="nav-item"><span class="nav-icon">♡</span>Сохранённое</button>
+      <button data-page="digest" class="nav-item"><span class="nav-icon">↗</span>На сегодня</button>
+    </nav>
+    <div class="sidebar-rule"></div>
+    <button data-page="sources" class="nav-item"><span class="nav-icon">◎</span>Магазины<span class="nav-num">04</span></button>
+    <button data-page="settings" class="nav-item"><span class="nav-icon">☷</span>Настройки</button>
+    <div class="sidebar-bottom">
+      <div class="taste-caption"><span>ТВОЙ СТИЛЬ, НЕ ТРЕНДЫ</span><span id="tasteN">0/20</span></div>
+      <div class="progress-track"><span id="tasteBar"></span></div>
+      <p>20 лайков — первая точка.<br>Дальше — всё точнее под тебя.</p>
+      <div class="profile"><div class="avatar">G</div><div>Глеб<span>Личное пространство</span></div><span class="local-dot" title="Данные хранятся локально"></span></div>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">ТВОЁ ПРОСТРАНСТВО <span>/</span> <b id="sectionName">НАХОДКИ</b></div>
+      <div class="top-actions"><span id="connection" class="status-pill">● Локальная база</span><button class="round-button" id="settingsShortcut" aria-label="Открыть настройки">☷</button></div>
+    </header>
+    <div id="scanBanner" class="scan-banner" hidden><span class="spinner"></span><span id="scanText"></span></div>
+    <div id="demoBanner" class="demo-banner" hidden>ДЕМО · Иллюстрации и вещи вымышлены. Это не каталог магазинов. <button id="removeDemo">Убрать демо</button></div>
+    <div class="page-content" id="content" aria-live="polite"></div>
+    <footer>FRESHHEAD © 2026 <span>МЕНЬШЕ СКРОЛЛА. БОЛЬШЕ ТВОЕГО.</span><a href="/api/export" download>Экспорт данных ↗</a></footer>
+  </main>
+</div>
+<dialog id="productDialog"><button class="dialog-close round-button" aria-label="Закрыть">×</button><div id="productDetail"></div></dialog>
+<dialog id="importDialog"><button class="dialog-close round-button" aria-label="Закрыть">×</button><div class="dialog-inner"><div class="eyebrow">НАЧНИ СО СВОЕГО</div><h2>Добавить вещь</h2><p>Прямая ссылка на товар из EME Studios, Supersklep, Jaded London или Walk in Paris.</p><form id="importForm"><label>Ссылка на товар<input name="url" type="url" placeholder="https://emestudios.com/pl/en/product/…" required></label><button class="button primary" type="submit">Добавить в каталог ↗</button></form><p class="muted" id="importStatus"></p></div></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

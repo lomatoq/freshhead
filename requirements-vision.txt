@@ -1,0 +1,6 @@
+-r requirements.txt
+# Optional; install only when you want local image embeddings.
+torch>=2.6,<3
+transformers>=4.49,<5
+Pillow>=11,<13
+numpy>=2,<3
