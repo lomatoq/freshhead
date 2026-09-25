@@ -7,5 +7,5 @@ if ! command -v python3 >/dev/null; then
 fi
 [ -d .venv ] || python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-printf '\nFreshhead: http://127.0.0.1:8765\nKeep this terminal open. Ctrl+C to stop.\n\n'
+printf '\nFreshhead: http://127.0.0.1:8766\nKeep this terminal open. Ctrl+C to stop.\n\n'
 exec .venv/bin/python -m freshhead

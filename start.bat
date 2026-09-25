@@ -14,7 +14,7 @@ if not exist ".venv\Scripts\python.exe" (
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto :error
 echo.
-echo Freshhead: open http://127.0.0.1:8765 in your browser.
+echo Freshhead: open http://127.0.0.1:8766 in your browser.
 echo Keep this window open. Press Ctrl+C to stop.
 echo.
 ".venv\Scripts\python.exe" -m freshhead

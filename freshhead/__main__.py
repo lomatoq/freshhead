@@ -12,7 +12,7 @@ def main():
     load_dotenv(Path(__file__).resolve().parent.parent / '.env')
     parser = argparse.ArgumentParser(description='Freshhead personal wardrobe radar')
     parser.add_argument('command', nargs='?', default='serve', choices=['serve', 'refresh', 'digest', 'index-images', 'demo'])
-    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--port', type=int, default=8766)
     parser.add_argument('--store', default='')
     parser.add_argument('--send', action='store_true')
     parser.add_argument('--limit', type=int, default=200)

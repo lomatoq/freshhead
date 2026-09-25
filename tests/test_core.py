@@ -256,3 +256,47 @@ def test_material_does_not_override_garment_category(title, category):
     from freshhead.catalog import enrich
     p = Product(store='eme', url='https://emestudios.com/product/test-denim', title=title)
     assert enrich(p).category == category
+
+
+def test_compressed_response_is_not_decoded_twice():
+    import gzip
+    async def run():
+        client=PublicClient(STORES['supersklep'])
+        client.robots=Robots('User-agent: *\nAllow: /')
+        await client.client.aclose()
+        payload=b'<html><title>Catalog</title></html>'
+        def handler(request):
+            return httpx.Response(200,headers={'Content-Encoding':'gzip','Content-Type':'text/html'},
+                                  content=gzip.compress(payload))
+        client.client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        text,url=await client.html('https://supersklep.pl/spodnie')
+        assert text==payload.decode()
+        assert url=='https://supersklep.pl/spodnie'
+        await client.client.aclose()
+    asyncio.run(run())
+
+
+def test_api_refresh_schedules_on_event_loop(db, monkeypatch):
+    called=[]
+    async def fake_refresh(self, sid=None):
+        called.append(sid)
+    monkeypatch.setattr(Service, 'refresh', fake_refresh)
+    with TestClient(create_app(db)) as client:
+        response=client.post('/api/refresh?store=supersklep', headers={'X-Freshhead':'1'})
+        assert response.status_code==200
+        assert response.json()['started'] is True
+        client.get('/api/state')
+        assert called==['supersklep']
+
+
+def test_supersklep_swatches_do_not_inherit_main_price():
+    html='<li><a class="cvn-product" data-price="499.9" data-brand="Polar Skate" data-name="Black Big Boy pants" href="/i101-black"><img src="https://supersklep.pl/black.jpg"></a><div class="colors"><a href="/i102-blue"><img alt="Blue Big Boy pants" src="https://supersklep.pl/blue.jpg"></a></div><span>499,90 PLN</span></li>'
+    ps,links=extract(html,'https://supersklep.pl/spodnie',STORES['supersklep'])
+    assert len(ps)==1 and ps[0].price==499.9 and ps[0].brand=='Polar Skate'
+    assert 'https://supersklep.pl/i102-blue' in links
+
+
+def test_eme_deep_card_price():
+    html='<section><article><article><div><div><a href="/us/en/product/black-wide-pants"><img alt="Black wide pants" src="https://emestudios.com/image.jpg"></a></div></div></article></article><h4>Black wide pants</h4><span>$129.00</span></section>'
+    ps,_=extract(html,'https://emestudios.com/us/en/',STORES['eme'])
+    assert len(ps)==1 and ps[0].price==129 and ps[0].currency=='USD'

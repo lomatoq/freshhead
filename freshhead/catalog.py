@@ -34,14 +34,14 @@ class Store:
 
 STORES = {
     'eme': Store('eme', 'EME Studios', 'emestudios.com',
-        ('https://emestudios.com/pl/en/shop',), r'/(?:products?|shop)/[^/?]+|/pl/en/[^/?]+-[^/?]+',
-        'Графика, трикотаж и свободный силуэт. Публичные страницы; API не используется.', 'EME Studios'),
+        ('https://emestudios.com/us/en/', 'https://emestudios.com/us/en/all-products'), r'/(?:products?|shop)/[^/?]+|/pl/en/[^/?]+-[^/?]+',
+        'Графика и свободный силуэт. US-витрина, цены в валюте магазина; доставку и регион проверь у продавца.', 'EME Studios'),
     'supersklep': Store('supersklep', 'SUPERSKLEP', 'supersklep.pl',
         ('https://supersklep.pl/spodnie', 'https://supersklep.pl/koszulki',
          'https://supersklep.pl/bluzy', 'https://supersklep.pl/buty'), r'/i\d+-',
         'Кроссовки, ботинки, skate и streetwear. Цены и варианты из карточек.'),
     'jaded': Store('jaded', 'Jaded London', 'jadedldn.com',
-        ('https://jadedldn.com/en-pl/collections/mens-all',), r'/products/[^/?]+',
+        ('https://jadedldn.com/en-us/collections/mens-all',), r'/products/[^/?]+',
         'Объёмный деним, сложные фактуры и более смелые сочетания.', 'Jaded London'),
     'walk': Store('walk', 'Walk in Paris', 'walkinparis.com',
         ('https://walkinparis.com/en/collections/all',), r'/products/[^/?]+',
@@ -300,18 +300,41 @@ def extract(html: str, url: str, store: Store, detail: bool = False) -> tuple[li
                 target = obj.get('url') or (obj.get('item', {}).get('url') if isinstance(obj.get('item'), dict) else obj.get('item'))
                 if isinstance(target, str) and valid_store_url(urljoin(url, target), store):
                     links.append(canonical(urljoin(url, target)))
+    # Supersklep publishes exact main-card attributes. Color swatches are only
+    # discovery links: their parent's price belongs to a different colorway.
+    if store.id == 'supersklep':
+        for a in soup.select('a.cvn-product[data-price][href]'):
+            href = urljoin(url, a['href'])
+            if not valid_store_url(href, store):
+                continue
+            img = a.find('img')
+            if not img:
+                continue
+            card = a.find_parent('li') or a.parent
+            _, currency = price_text(card.get_text(' ', strip=True))
+            image = img.get('data-src') or img.get('src') or ''
+            title = a.get('data-name') or img.get('alt') or a.get('title')
+            if not title:
+                continue
+            p = enrich(Product(store=store.id, url=href, title=title,
+                brand=a.get('data-brand') or '', image=urljoin(url, image) if image else '',
+                price=money(a['data-price']) if currency else None, currency=currency,
+                extraction='catalog-card'))
+            products.setdefault(p.id, p)
     for a in soup.select('a[href]'):
         href = urljoin(url, a['href'])
         if not valid_store_url(href, store) or not re.search(store.product_pattern, urlsplit(href).path):
             continue
         href = canonical(href)
         links.append(href)
+        if store.id == 'supersklep' and a.find_parent(class_='colors'):
+            continue
         if product_id(store.id, href) in products:
             continue
         img = a.find('img')
         card = a
         # Some shops place price/title next to the image anchor, inside a card.
-        for _ in range(3):
+        for _ in range(8 if store.id == 'eme' else 3):
             if price_text(card.get_text(' ', strip=True))[0] is not None:
                 break
             parent = card.parent
@@ -324,7 +347,7 @@ def extract(html: str, url: str, store: Store, detail: bool = False) -> tuple[li
         leaf_prices = [price_text(t) for t in leaves if len(t) < 80 and price_text(t)[0] is not None]
         if leaf_prices:
             price, currency = leaf_prices[-1]
-        title_node = card.select_one('[itemprop="name"],h3,h2,[class*="product-name"],[class*="product-title"]')
+        title_node = card.select_one('[itemprop="name"],h3,h2,h4,[class*="product-name"],[class*="product-title"]')
         title = title_node.get_text(' ', strip=True) if title_node else (img.get('alt', '') if img else '')
         if not title:
             title = re.split(r'\d+[.,]\d{2}\s*(?:PLN|EUR|zł|€)', a.get_text(' ', strip=True))[0].strip()
@@ -397,7 +420,11 @@ class PublicClient:
                     body.extend(part)
                     if len(body) > 8_000_000:
                         raise CrawlError('Страница превышает лимит 8 МБ')
-                response = httpx.Response(r.status_code, headers=r.headers, content=bytes(body), request=r.request)
+                # aiter_bytes() already decodes gzip/deflate/brotli. Retaining the
+                # transport encoding would make the new Response decode a second time.
+                headers = {k: v for k, v in r.headers.items()
+                           if k.lower() not in ('content-encoding', 'content-length', 'transfer-encoding')}
+                response = httpx.Response(r.status_code, headers=headers, content=bytes(body), request=r.request)
             if response.status_code in (301, 302, 303, 307, 308):
                 url = urljoin(url, response.headers.get('location', ''))
                 continue

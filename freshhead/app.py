@@ -132,7 +132,7 @@ def create_app(db: DB | None = None):
             raise HTTPException(502, 'Магазин не ответил. Проверь соединение или попробуй позднее.')
 
     @app.post('/api/refresh')
-    def refresh(store: str = ''):
+    async def refresh(store: str = ''):
         if store and store not in STORES:
             raise HTTPException(404, 'Неизвестный магазин')
         if not service.start_refresh(store or None):
